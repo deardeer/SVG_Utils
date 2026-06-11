@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vectorization Comparison — LayerVec vs VISTA</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1a1a1a; color: #e0e0e0; font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 24px 16px; }
+  h1 { font-size: 20px; font-weight: 500; letter-spacing: 0.04em; color: #888; margin-bottom: 20px; text-transform: uppercase; }
+  .triple-container { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  .image-card { background: #2a2a2a; border-radius: 12px; padding: 12px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); min-width: 280px; }
+  .svg-card { background: #2a2a2a; border-radius: 12px; padding: 12px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); }
+  .image-card h3, .svg-card h3 { font-size: 14px; color: #aaa; margin-bottom: 8px; text-align: center; }
+  #canvas-wrap { position: relative; border-radius: 12px; overflow: auto; background: #1a1a1a; display: flex; justify-content: center; align-items: center; min-height: 450px; max-height: 550px; }
+  .original-img { max-width: 100%; max-height: 450px; border-radius: 8px; object-fit: contain; background: #f5f5f5; }
+  .svg-container { 
+    position: relative; 
+    border-radius: 12px; 
+    overflow: auto; 
+    background: #f5f5f5; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    min-height: 450px;
+    max-height: 550px;
+    width: 100%;
+  }
+  svg { 
+    display: block; 
+    background: #f5f5f5; 
+    border-radius: 8px; 
+    max-width: 100%;
+    height: auto;
+    cursor: grab;
+  }
+  svg:active {
+    cursor: grabbing;
+  }
+  .controls { margin-top: 20px; width: 100%; max-width: 1300px; display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .btn { background: #2a2a2a; border: 1px solid #444; color: #ccc; border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+  .btn:hover { background: #3a3a3a; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.active { background: #3d5a80; border-color: #5a8ab5; color: #fff; }
+  .btn.show-points { border-color: #3d5a80; color: #5a8ab5; }
+  .btn.show-points.active { background: #3d5a80; color: #fff; }
+  #progress { flex: 1; min-width: 200px; accent-color: #5a8ab5; cursor: pointer; }
+  .label { font-size: 13px; color: #888; min-width: 60px; text-align: right; }
+  .val { font-size: 13px; color: #ccc; min-width: 36px; }
+  .speed-wrap { display: flex; align-items: center; gap: 6px; }
+  .speed-btn { background: #2a2a2a; border: 1px solid #444; color: #999; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  .speed-btn:hover, .speed-btn.on { background: #3d5a80; border-color: #5a8ab5; color: #fff; }
+  #counter { font-size: 13px; color: #666; text-align: center; letter-spacing: 0.02em; }
+  #status { font-size: 12px; color: #888; text-align: center; min-height: 18px; }
+  .progress-bar-wrap { width: 100%; background: #333; border-radius: 4px; height: 6px; overflow: hidden; display: none; }
+  .progress-bar-fill { height: 100%; background: #5a8ab5; width: 0%; transition: width 0.1s; border-radius: 4px; }
+  .select-row { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; justify-content: center; margin-bottom: 15px; }
+  .select-group { display: flex; align-items: center; gap: 8px; background: #252525; padding: 8px 16px; border-radius: 8px; }
+  .select-group label { font-size: 13px; color: #aaa; }
+  select { background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; min-width: 180px; }
+  select:hover { background: #3a3a3a; }
+  .file-status { font-size: 11px; margin-top: 5px; text-align: center; padding: 4px; border-radius: 4px; }
+  .status-missing { background: #5a2a2a; color: #ff8888; }
+  .status-loaded { background: #2a5a2a; color: #88ff88; }
+  .status-loading { background: #5a5a2a; color: #ffff88; }
+  .svg-stats { font-size: 11px; color: #666; margin-top: 5px; text-align: center; }
+  .legend { display: flex; gap: 15px; justify-content: center; margin-top: 10px; font-size: 11px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-color { width: 16px; height: 2px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid; background: transparent; }
+  .control-point { cursor: pointer; transition: r 0.2s; }
+  .control-point:hover { r: 6; stroke-width: 2.5; }
+  .zoom-controls { display: flex; gap: 5px; margin-top: 5px; justify-content: center; }
+  .zoom-btn { background: #2a2a2a; border: 1px solid #555; color: #ccc; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+  .zoom-btn:hover { background: #3a3a3a; }
+</style>
+</head>
+<body>
+<h1>🖼️ Vectorization Comparison — LayerVec vs VISTA</h1>
+
+<div class="triple-container">
+  <!-- 原始图片 -->
+  <div class="image-card">
+    <h3>📷 Original Image</h3>
+    <div id="canvas-wrap-original" style="overflow: auto; min-height: 450px;">
+      <img id="originalImage" class="original-img" alt="Original" src="">
+    </div>
+    <div class="file-status" id="originalStatus">No image selected</div>
+  </div>
+
+  <!-- LayerVec SVG -->
+  <div class="svg-card">
+    <h3>🎨 LayerVec</h3>
+    <div id="canvas-wrap1" class="svg-container">
+      <svg id="svg1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 400 400" width="400" height="400">
+        <defs/>
+        <g id="layer1"></g>
+        <g id="edge-layer1"></g>
+        <g id="points-layer1"></g>
+      </svg>
+    </div>
+    <div class="zoom-controls">
+      <button class="zoom-btn" data-svg="svg1" data-zoom="in">🔍 Zoom In</button>
+      <button class="zoom-btn" data-svg="svg1" data-zoom="out">🔍 Zoom Out</button>
+      <button class="zoom-btn" data-svg="svg1" data-zoom="reset">⟲ Reset</button>
+    </div>
+    <div class="svg-stats" id="stats1">Path 0 / 0</div>
+    <div class="file-status" id="status1">Not loaded</div>
+  </div>
+
+  <!-- VISTA SVG -->
+  <div class="svg-card">
+    <h3>✨ VISTA</h3>
+    <div id="canvas-wrap2" class="svg-container">
+      <svg id="svg2" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 400 400" width="400" height="400">
+        <defs/>
+        <g id="layer2"></g>
+        <g id="edge-layer2"></g>
+        <g id="points-layer2"></g>
+      </svg>
+    </div>
+    <div class="zoom-controls">
+      <button class="zoom-btn" data-svg="svg2" data-zoom="in">🔍 Zoom In</button>
+      <button class="zoom-btn" data-svg="svg2" data-zoom="out">🔍 Zoom Out</button>
+      <button class="zoom-btn" data-svg="svg2" data-zoom="reset">⟲ Reset</button>
+    </div>
+    <div class="svg-stats" id="stats2">Path 0 / 0</div>
+    <div class="file-status" id="status2">Not loaded</div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="select-row">
+    <div class="select-group">
+      <label>📁 Select Image:</label>
+      <select id="imageSelect">
+        <option value="">-- Loading images... --</option>
+      </select>
+    </div>
+    <button class="btn" id="btnRefresh">🔄 Refresh List</button>
+  </div>
+
+  <div class="row">
+    <button class="btn" id="btnPlay">▶ Play</button>
+    <button class="btn" id="btnPause">⏸ Pause</button>
+    <button class="btn" id="btnReset">↺ Reset</button>
+    <button class="btn show-points" id="btnTogglePoints">🔵 Show Control Points</button>
+    <span class="label">Speed:</span>
+    <div class="speed-wrap">
+      <button class="speed-btn" data-v="8">0.5×</button>
+      <button class="speed-btn on" data-v="2">1×</button>
+      <button class="speed-btn" data-v="1">2×</button>
+      <button class="speed-btn" data-v="0">Max</button>
+    </div>
+  </div>
+  
+  <div class="row">
+    <span class="label">Progress</span>
+    <input type="range" id="progress" min="0" max="100" value="0" step="1">
+    <span class="val" id="pval">0</span>
+  </div>
+  <div id="counter">Combined Progress: 0 / 0</div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-color" style="background:#3a86ff; width:20px;"></div> <span>Path Edge</span></div>
+    <div class="legend-item"><div class="legend-dot" style="border-color:#3a86ff;"></div> <span>Anchor Point</span></div>
+    <div class="legend-item"><div class="legend-color" style="background:#3a86ff; width:6px; height:6px;"></div> <span>Control Point</span></div>
+  </div>
+  
+  <div class="progress-bar-wrap" id="pbWrap">
+    <div class="progress-bar-fill" id="pbFill"></div>
+  </div>
+</div>
+
+<script>
+// 配置 - 使用 Flask 后端
+const FLASK_API_URL = 'http://localhost:5002';
+const BASE_PATH = FLASK_API_URL + '/data/';
+const IMAGES_PATH = BASE_PATH + 'animals100_median/';
+const LAYERVEC_PATH = BASE_PATH + 'LayerVec/';
+const VISTA_PATH = BASE_PATH + 'VISTA/';
+
+// SVG 缩放管理
+const svgZoom = {
+    svg1: { scale: 1, offsetX: 0, offsetY: 0 },
+    svg2: { scale: 1, offsetX: 0, offsetY: 0 }
+};
+
+function updateSVGTransform(svgId) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    
+    const zoom = svgZoom[svgId];
+    const transform = `translate(${zoom.offsetX}px, ${zoom.offsetY}px) scale(${zoom.scale})`;
+    const transformOrigin = '0 0';
+    
+    // 应用到所有图层
+    const layers = svg.querySelectorAll('g');
+    layers.forEach(layer => {
+        layer.style.transform = transform;
+        layer.style.transformOrigin = transformOrigin;
+    });
+}
+
+function zoomSVG(svgId, direction) {
+    const zoom = svgZoom[svgId];
+    
+    if (direction === 'in') {
+        zoom.scale = Math.min(zoom.scale * 1.2, 5);
+    } else if (direction === 'out') {
+        zoom.scale = Math.max(zoom.scale / 1.2, 0.2);
+    } else if (direction === 'reset') {
+        zoom.scale = 1;
+        zoom.offsetX = 0;
+        zoom.offsetY = 0;
+    }
+    
+    updateSVGTransform(svgId);
+}
+
+// 自动计算 SVG 的 viewBox 以显示所有内容
+function fitSVGToView(svgElement, svgId) {
+    if (!svgElement) return;
+    
+    // 获取所有路径
+    const paths = svgElement.querySelectorAll('path');
+    if (paths.length === 0) return;
+    
+    // 计算所有路径的边界框
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    paths.forEach(path => {
+        const d = path.getAttribute('d');
+        if (!d) return;
+        
+        // 提取所有坐标
+        const coordRegex = /([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/g;
+        const matches = d.match(coordRegex);
+        if (!matches) return;
+        
+        for (let i = 0; i < matches.length; i += 2) {
+            if (i + 1 < matches.length) {
+                const x = parseFloat(matches[i]);
+                const y = parseFloat(matches[i + 1]);
+                if (!isNaN(x) && !isNaN(y)) {
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+        }
+    });
+    
+    if (minX === Infinity) return;
+    
+    // 添加边距
+    const padding = 20;
+    const width = maxX - minX + padding * 2;
+    const height = maxY - minY + padding * 2;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    // 设置 viewBox 以显示所有内容
+    svgElement.setAttribute('viewBox', `${minX - padding} ${minY - padding} ${width} ${height}`);
+    
+    // 重置缩放
+    if (svgZoom[svgId]) {
+        svgZoom[svgId].scale = 1;
+        svgZoom[svgId].offsetX = 0;
+        svgZoom[svgId].offsetY = 0;
+        updateSVGTransform(svgId);
+    }
+}
+
+// 解析 SVG 文本并计算边界框
+function parseSVGAndFit(svgText, svgId) {
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
+    const pathsElements = svgDoc.querySelectorAll('path');
+    
+    if (pathsElements.length === 0) return;
+    
+    // 计算边界框
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    
+    pathsElements.forEach(path => {
+        const d = path.getAttribute('d');
+        if (!d) return;
+        
+        const coordRegex = /([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/g;
+        const matches = d.match(coordRegex);
+        if (!matches) return;
+        
+        for (let i = 0; i < matches.length; i += 2) {
+            if (i + 1 < matches.length) {
+                const x = parseFloat(matches[i]);
+                const y = parseFloat(matches[i + 1]);
+                if (!isNaN(x) && !isNaN(y)) {
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+        }
+    });
+    
+    if (minX !== Infinity) {
+        const padding = 20;
+        const width = maxX - minX + padding * 2;
+        const height = maxY - minY + padding * 2;
+        return {
+            viewBox: `${minX - padding} ${minY - padding} ${width} ${height}`,
+            bounds: { minX, minY, maxX, maxY, width, height }
+        };
+    }
+    return null;
+}
+
+// DOM 元素和变量
+let svgElements, svgData, statusEl, currentImageName, imageList, timer, interval, showControlPoints, isPlaying;
+
+// 解析 SVG path 的 d 属性，提取所有坐标点
+function parsePathToPoints(d) {
+    const points = [];
+    const coordRegex = /([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/g;
+    const matches = d.match(coordRegex);
+    if (!matches) return points;
+    
+    let i = 0;
+    let cmd = '';
+    for (let j = 0; j < d.length; j++) {
+        if (/[MLCQAZT]/i.test(d[j])) {
+            cmd = d[j];
+            break;
+        }
+    }
+    
+    while (i < matches.length) {
+        const coords = [];
+        while (i < matches.length && coords.length < 6) {
+            const x = parseFloat(matches[i++]);
+            if (i >= matches.length) break;
+            const y = parseFloat(matches[i++]);
+            coords.push({x, y});
+        }
+        
+        if (coords.length > 0) {
+            const upperCmd = cmd.toUpperCase();
+            switch (upperCmd) {
+                case 'M': case 'L':
+                    points.push({type: 'point', x: coords[0].x, y: coords[0].y});
+                    break;
+                case 'C':
+                    if (coords.length >= 3) {
+                        points.push({type: 'control', x: coords[0].x, y: coords[0].y});
+                        points.push({type: 'control', x: coords[1].x, y: coords[1].y});
+                        points.push({type: 'point', x: coords[2].x, y: coords[2].y});
+                    }
+                    break;
+                case 'Q':
+                    if (coords.length >= 2) {
+                        points.push({type: 'control', x: coords[0].x, y: coords[0].y});
+                        points.push({type: 'point', x: coords[1].x, y: coords[1].y});
+                    }
+                    break;
+            }
+        }
+        
+        const nextCmdMatch = d.slice(i * 0.5).match(/[MLCQAZT]/i);
+        if (nextCmdMatch) {
+            cmd = nextCmdMatch[0];
+        }
+    }
+    return points;
+}
+
+// 显示路径边缘和控制点
+function showPathEdgeAndPoints(svgKey) {
+    const data = svgData[svgKey];
+    const elements = svgElements[svgKey];
+    if (!data.loaded) return;
+    
+    while (elements.edgeLayer.firstChild) elements.edgeLayer.removeChild(elements.edgeLayer.firstChild);
+    while (elements.pointsLayer.firstChild) elements.pointsLayer.removeChild(elements.pointsLayer.firstChild);
+    
+    if (!showControlPoints) return;
+    
+    const originalPaths = elements.layer.querySelectorAll('path');
+    originalPaths.forEach(originalPath => {
+        const d = originalPath.getAttribute('d');
+        if (!d) return;
+        
+        const edgePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        edgePath.setAttribute('d', d);
+        edgePath.setAttribute('fill', 'none');
+        edgePath.setAttribute('stroke', '#3a86ff');
+        edgePath.setAttribute('stroke-width', '1.5');
+        edgePath.setAttribute('stroke-dasharray', '4,2');
+        edgePath.setAttribute('opacity', '0.8');
+        elements.edgeLayer.appendChild(edgePath);
+        
+        const points = parsePathToPoints(d);
+        points.forEach(point => {
+            if (point.type === 'point') {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', point.x);
+                circle.setAttribute('cy', point.y);
+                circle.setAttribute('r', '4');
+                circle.setAttribute('fill', 'none');
+                circle.setAttribute('stroke', '#3a86ff');
+                circle.setAttribute('stroke-width', '1.5');
+                circle.setAttribute('class', 'control-point');
+                elements.pointsLayer.appendChild(circle);
+            } else if (point.type === 'control') {
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', point.x - 2.5);
+                rect.setAttribute('y', point.y - 2.5);
+                rect.setAttribute('width', '5');
+                rect.setAttribute('height', '5');
+                rect.setAttribute('fill', 'none');
+                rect.setAttribute('stroke', '#3a86ff');
+                rect.setAttribute('stroke-width', '1.5');
+                rect.setAttribute('class', 'control-point');
+                elements.pointsLayer.appendChild(rect);
+            }
+        });
+    });
+}
+
+function clearPathEdgeAndPoints(svgKey) {
+    const elements = svgElements[svgKey];
+    while (elements.edgeLayer.firstChild) elements.edgeLayer.removeChild(elements.edgeLayer.firstChild);
+    while (elements.pointsLayer.firstChild) elements.pointsLayer.removeChild(elements.pointsLayer.firstChild);
+}
+
+function toggleControlPoints() {
+    showControlPoints = !showControlPoints;
+    const btn = document.getElementById('btnTogglePoints');
+    if (showControlPoints) {
+        btn.textContent = '🔵 Hide Control Points';
+        btn.classList.add('active');
+        if (svgData.layervec.loaded) showPathEdgeAndPoints('layervec');
+        if (svgData.vista.loaded) showPathEdgeAndPoints('vista');
+    } else {
+        btn.textContent = '🔵 Show Control Points';
+        btn.classList.remove('active');
+        if (svgData.layervec.loaded) clearPathEdgeAndPoints('layervec');
+        if (svgData.vista.loaded) clearPathEdgeAndPoints('vista');
+    }
+}
+
+// 解析 SVG 文本
+function parseSVGToPaths(svgText) {
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
+    const parserError = svgDoc.querySelector('parsererror');
+    if (parserError) throw new Error('Invalid SVG format');
+    
+    const pathsElements = svgDoc.querySelectorAll('path');
+    if (pathsElements.length === 0) throw new Error('No path elements found');
+    
+    return Array.from(pathsElements).map(path => ({
+        d: path.getAttribute('d'),
+        fill: path.getAttribute('fill') || 'none',
+        opacity: path.getAttribute('opacity') || '1.0',
+        stroke: path.getAttribute('stroke') || 'none',
+        'stroke-width': path.getAttribute('stroke-width') || '0',
+        'stroke-opacity': path.getAttribute('stroke-opacity') || '1.0'
+    }));
+}
+
+// 加载 SVG
+async function loadSVG(svgKey, url, fileName) {
+    const data = svgData[svgKey];
+    const elements = svgElements[svgKey];
+    
+    try {
+        elements.statusSpan.textContent = 'Loading...';
+        elements.statusSpan.className = 'file-status status-loading';
+        
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const svgText = await response.text();
+        const newPaths = parseSVGToPaths(svgText);
+        
+        data.paths = newPaths;
+        data.total = newPaths.length;
+        data.current = 0;
+        data.loaded = true;
+        data.available = true;
+        data.fileName = fileName;
+        
+        elements.statsSpan.textContent = `Path 0 / ${data.total}`;
+        elements.statusSpan.textContent = `✓ Loaded: ${data.total} paths`;
+        elements.statusSpan.className = 'file-status status-loaded';
+        
+        // 重置显示
+        while (elements.layer.firstChild) elements.layer.removeChild(elements.layer.firstChild);
+        
+        // 计算并设置 viewBox
+        const fitInfo = parseSVGAndFit(svgText, svgKey);
+        if (fitInfo && elements.svg) {
+            elements.svg.setAttribute('viewBox', fitInfo.viewBox);
+        }
+        
+        return true;
+    } catch (error) {
+        console.error(`加载 ${svgKey} SVG 失败:`, error);
+        data.loaded = false;
+        data.available = false;
+        data.total = 0;
+        elements.statsSpan.textContent = `Path 0 / 0`;
+        elements.statusSpan.textContent = `✗ File not found: ${fileName}`;
+        elements.statusSpan.className = 'file-status status-missing';
+        return false;
+    }
+}
+
+// 加载原始图片
+function loadOriginalImage(imageName) {
+    const imgElement = document.getElementById('originalImage');
+    const statusSpan = document.getElementById('originalStatus');
+    
+    if (!imageName) {
+        imgElement.src = '';
+        statusSpan.textContent = 'No image selected';
+        statusSpan.className = 'file-status status-missing';
+        return;
+    }
+    
+    const imageUrl = IMAGES_PATH + imageName;
+    imgElement.src = imageUrl;
+    imgElement.onload = () => {
+        statusSpan.textContent = `✓ Loaded: ${imageName}`;
+        statusSpan.className = 'file-status status-loaded';
+    };
+    imgElement.onerror = () => {
+        imgElement.src = '';
+        statusSpan.textContent = `✗ Image not found: ${imageName}`;
+        statusSpan.className = 'file-status status-missing';
+    };
+}
+
+// 加载两个 SVG
+async function loadBothSVG(imageName) {
+    const baseName = imageName.replace(/\.(jpg|jpeg|png|gif|webp)$/i, '');
+    const layervecUrl = LAYERVEC_PATH + baseName + '.svg';
+    const vistaUrl = VISTA_PATH + baseName + '.svg';
+    
+    if (statusEl) statusEl.textContent = `Loading vectorization results for ${baseName}...`;
+    
+    // 并行加载
+    const results = await Promise.all([
+        loadSVG('layervec', layervecUrl, baseName + '.svg'),
+        loadSVG('vista', vistaUrl, baseName + '.svg')
+    ]);
+    
+    updateProgressMax();
+    reset();
+    
+    const loadedCount = results.filter(r => r).length;
+    if (statusEl) statusEl.textContent = `✓ Loaded ${loadedCount}/2 vectorization results`;
+}
+
+// 获取当前最大进度
+function getMaxCurrent() {
+    return Math.max(svgData.layervec.current, svgData.vista.current);
+}
+
+function getMaxTotal() {
+    return Math.max(svgData.layervec.total, svgData.vista.total);
+}
+
+function updateProgressMax() {
+    const maxTotal = getMaxTotal();
+    const progressEl = document.getElementById('progress');
+    if (progressEl) progressEl.max = maxTotal;
+    const counterEl = document.getElementById('counter');
+    if (counterEl) counterEl.textContent = `Combined Progress: ${getMaxCurrent()} / ${maxTotal}`;
+}
+
+function updateAllUI() {
+    const maxCurrent = getMaxCurrent();
+    const maxTotal = getMaxTotal();
+    const progressEl = document.getElementById('progress');
+    const pvalEl = document.getElementById('pval');
+    const counterEl = document.getElementById('counter');
+    
+    if (progressEl) progressEl.value = maxCurrent;
+    if (pvalEl) pvalEl.textContent = maxCurrent;
+    if (counterEl) counterEl.textContent = `Combined Progress: ${maxCurrent} / ${maxTotal}`;
+    
+    // 更新每个 SVG 的统计
+    if (svgData.layervec.loaded && svgElements.layervec.statsSpan) {
+        svgElements.layervec.statsSpan.textContent = `Path ${svgData.layervec.current} / ${svgData.layervec.total}`;
+    }
+    if (svgData.vista.loaded && svgElements.vista.statsSpan) {
+        svgElements.vista.statsSpan.textContent = `Path ${svgData.vista.current} / ${svgData.vista.total}`;
+    }
+}
+
+function addPathToSVG(svgKey, index) {
+    const data = svgData[svgKey];
+    const elements = svgElements[svgKey];
+    if (!data.loaded || index >= data.total) return;
+    
+    const p = data.paths[index];
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    el.setAttribute('d', p.d);
+    el.setAttribute('fill', p.fill);
+    el.setAttribute('opacity', p.opacity);
+    el.setAttribute('stroke', p.stroke);
+    el.setAttribute('stroke-width', p['stroke-width']);
+    el.setAttribute('stroke-opacity', p['stroke-opacity']);
+    el.setAttribute('stroke-linecap', 'round');
+    el.setAttribute('stroke-linejoin', 'round');
+    elements.layer.appendChild(el);
+    
+    if (showControlPoints) {
+        showPathEdgeAndPoints(svgKey);
+    }
+}
+
+function goTo(target) {
+    // 同时控制两个 SVG 的进度
+    const keys = ['layervec', 'vista'];
+    for (const key of keys) {
+        const data = svgData[key];
+        if (!data.loaded) continue;
+        
+        if (target > data.current) {
+            for (let j = data.current; j < target && j < data.total; j++) {
+                addPathToSVG(key, j);
+            }
+        } else if (target < data.current) {
+            while (svgElements[key].layer.firstChild) svgElements[key].layer.removeChild(svgElements[key].layer.firstChild);
+            for (let j = 0; j < target && j < data.total; j++) {
+                addPathToSVG(key, j);
+            }
+        }
+        data.current = Math.min(target, data.total);
+    }
+    updateAllUI();
+    if (showControlPoints) {
+        if (svgData.layervec.loaded) showPathEdgeAndPoints('layervec');
+        if (svgData.vista.loaded) showPathEdgeAndPoints('vista');
+    }
+}
+
+function step() {
+    const maxCurrent = getMaxCurrent();
+    const maxTotal = getMaxTotal();
+    
+    if (maxCurrent >= maxTotal || maxTotal === 0) { 
+        pause(); 
+        return; 
+    }
+    
+    // 同时推进两个 SVG
+    const keys = ['layervec', 'vista'];
+    for (const key of keys) {
+        const data = svgData[key];
+        if (data.loaded && data.current < data.total) {
+            addPathToSVG(key, data.current);
+            data.current++;
+        }
+    }
+    
+    updateAllUI();
+    
+    if (getMaxCurrent() < maxTotal) {
+        if (interval === 0) requestAnimationFrame(step);
+        else timer = setTimeout(step, interval);
+    } else {
+        pause();
+    }
+}
+
+function play() {
+    const maxTotal = getMaxTotal();
+    if (maxTotal === 0) return;
+    if (isPlaying) return;
+    isPlaying = true;
+    const btnPlay = document.getElementById('btnPlay');
+    if (btnPlay) btnPlay.classList.add('active');
+    if (interval === 0) requestAnimationFrame(step);
+    else timer = setTimeout(step, interval);
+}
+
+function pause() {
+    clearTimeout(timer);
+    isPlaying = false;
+    const btnPlay = document.getElementById('btnPlay');
+    if (btnPlay) btnPlay.classList.remove('active');
+}
+
+function reset() {
+    pause();
+    const keys = ['layervec', 'vista'];
+    for (const key of keys) {
+        const data = svgData[key];
+        const elements = svgElements[key];
+        if (data.loaded) {
+            while (elements.layer.firstChild) elements.layer.removeChild(elements.layer.firstChild);
+            data.current = 0;
+            if (showControlPoints) {
+                showPathEdgeAndPoints(key);
+            }
+        } else if (!data.available && data.total === 0) {
+            // 清空显示
+            while (elements.layer.firstChild) elements.layer.removeChild(elements.layer.firstChild);
+        }
+    }
+    updateAllUI();
+}
+
+// 获取图片列表 - 通过 Python Flask 后端
+async function fetchImageList() {
+    const statusElement = document.getElementById('status');
+    if (statusElement) statusElement.textContent = 'Loading image list from Flask server...';
+    
+    try {
+        const response = await fetch(`${FLASK_API_URL}/data/get_image_list`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.images && data.images.length > 0) {
+                imageList = data.images;
+                if (statusElement) statusElement.textContent = `✓ Loaded ${imageList.length} images from Flask API`;
+                console.log('Image list:', imageList);
+            } else {
+                throw new Error('No images found in directory');
+            }
+        } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+    } catch (error) {
+        console.error('Failed to fetch image list:', error);
+        if (statusElement) {
+            statusElement.textContent = `⚠️ Cannot connect to Flask server at ${FLASK_API_URL}`;
+        }
+        
+        // 使用模拟数据作为后备
+        imageList = [
+            'a.jpg', 'b.jpg', 'c.jpg', 'd.jpg', 'e.jpg',
+            'f.jpg', 'g.jpg', 'h.jpg', 'i.jpg', 'j.jpg'
+        ];
+    }
+    
+    const select = document.getElementById('imageSelect');
+    if (select) {
+        select.innerHTML = '<option value="">-- Select an image --</option>';
+        
+        if (imageList.length === 0) {
+            const option = document.createElement('option');
+            option.value = "";
+            option.textContent = "-- No images found --";
+            option.disabled = true;
+            select.appendChild(option);
+        } else {
+            for (const img of imageList) {
+                const option = document.createElement('option');
+                option.value = img;
+                option.textContent = img;
+                select.appendChild(option);
+            }
+        }
+    }
+    
+    if (imageList.length === 0) {
+        if (statusElement) {
+            statusElement.textContent = '⚠️ No images found in ' + IMAGES_PATH;
+            statusElement.style.color = '#ff8888';
+        }
+    } else {
+        if (statusElement) {
+            statusElement.textContent = `✓ Ready: ${imageList.length} images available`;
+            statusElement.style.color = '#88ff88';
+        }
+    }
+}
+
+// 选择图片
+async function selectImage(imageName) {
+    if (!imageName) return;
+    
+    currentImageName = imageName;
+    const statusElement = document.getElementById('status');
+    if (statusElement) statusElement.textContent = `Loading ${imageName}...`;
+    
+    // 加载原始图片
+    loadOriginalImage(imageName);
+    
+    // 加载 SVG
+    await loadBothSVG(imageName);
+}
+
+// 刷新列表
+async function refreshList() {
+    await fetchImageList();
+}
+
+// 初始化函数 - 在 DOM 加载完成后执行
+function init() {
+    // 初始化 DOM 元素引用
+    svgElements = {
+        layervec: { 
+            svg: document.getElementById('svg1'),
+            layer: document.getElementById('layer1'), 
+            edgeLayer: document.getElementById('edge-layer1'), 
+            pointsLayer: document.getElementById('points-layer1'), 
+            statsSpan: document.getElementById('stats1'), 
+            statusSpan: document.getElementById('status1') 
+        },
+        vista: { 
+            svg: document.getElementById('svg2'),
+            layer: document.getElementById('layer2'), 
+            edgeLayer: document.getElementById('edge-layer2'), 
+            pointsLayer: document.getElementById('points-layer2'), 
+            statsSpan: document.getElementById('stats2'), 
+            statusSpan: document.getElementById('status2') 
+        }
+    };
+    
+    // 初始化数据
+    svgData = {
+        layervec: { paths: [], current: 0, total: 0, loaded: false, fileName: '', available: true },
+        vista: { paths: [], current: 0, total: 0, loaded: false, fileName: '', available: true }
+    };
+    
+    statusEl = document.getElementById('status');
+    currentImageName = '';
+    imageList = [];
+    timer = null;
+    interval = 2;
+    showControlPoints = true;
+    isPlaying = false;
+    
+    // 事件绑定
+    const btnPlay = document.getElementById('btnPlay');
+    const btnPause = document.getElementById('btnPause');
+    const btnReset = document.getElementById('btnReset');
+    const btnRefresh = document.getElementById('btnRefresh');
+    const btnTogglePoints = document.getElementById('btnTogglePoints');
+    const imageSelect = document.getElementById('imageSelect');
+    const progressEl = document.getElementById('progress');
+    const speedBtns = document.querySelectorAll('.speed-btn');
+    
+    if (btnPlay) btnPlay.addEventListener('click', play);
+    if (btnPause) btnPause.addEventListener('click', pause);
+    if (btnReset) btnReset.addEventListener('click', reset);
+    if (btnRefresh) btnRefresh.addEventListener('click', refreshList);
+    if (btnTogglePoints) btnTogglePoints.addEventListener('click', toggleControlPoints);
+    
+    if (imageSelect) {
+        imageSelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                selectImage(e.target.value);
+            }
+        });
+    }
+    
+    if (progressEl) {
+        progressEl.addEventListener('input', e => {
+            if (getMaxTotal() === 0) return;
+            pause();
+            goTo(parseInt(e.target.value));
+        });
+    }
+    
+    speedBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            speedBtns.forEach(b => b.classList.remove('on'));
+            btn.classList.add('on');
+            const v = parseInt(btn.dataset.v);
+            interval = v === 8 ? 8 : v === 2 ? 2 : v === 1 ? 0.5 : 0;
+        });
+    });
+    
+    // 缩放按钮事件
+    document.querySelectorAll('.zoom-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const svgId = btn.dataset.svg;
+            const zoomAction = btn.dataset.zoom;
+            if (svgId && zoomAction) {
+                zoomSVG(svgId, zoomAction);
+            }
+        });
+    });
+    
+    // 设置控制点按钮初始状态
+    if (btnTogglePoints) {
+        btnTogglePoints.classList.add('active');
+        btnTogglePoints.textContent = '🔵 Hide Control Points';
+    }
+    
+    // 加载图片列表
+    fetchImageList();
+}
+
+// 等待 DOM 加载完成后初始化
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
+</script>
+</body>
+</html>
