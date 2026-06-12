@@ -5,17 +5,14 @@ import glob
 
 app = Flask(__name__)
 
-# 配置 CORS，允许所有来源访问
+# 1. 统一由 Flask-CORS 处理跨域，支持 credentials 和本地 file:// 打开的 null origin
 CORS(app, resources={
     r"/*": {
-        "origins": "*",
+        "origins": "*",  # 如果前端用 file:// 双击打开，可以改为 ["*"] 或允许所有
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
     }
 })
-
-# 或者更简单的配置
-# CORS(app)  # 这也会允许所有来源
 
 @app.route('/data/get_image_list')
 def get_image_list():
@@ -38,7 +35,8 @@ def get_image_list():
         'path': image_dir
     })
 
-# 添加静态文件服务路由
+# ==================== 静态文件服务路由 ====================
+
 @app.route('/data/animals100_median/<path:filename>')
 def serve_image(filename):
     return send_from_directory('./data/animals100_median', filename)
@@ -51,15 +49,14 @@ def serve_layervec(filename):
 def serve_vista(filename):
     return send_from_directory('./data/VISTA', filename)
 
-@app.after_request
-def after_request(response):
-    """添加额外的 CORS 头"""
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response
+# ✨ 补上你漏掉的 VISTA_clean 路由！
+@app.route('/data/VISTA_clean/<path:filename>')
+def serve_vista_clean(filename):
+    return send_from_directory('./data/VISTA_clean', filename)
+
+# ========================================================
+
+# 🚨 注意：这里删除了引发 CORS 冲突的 @app.after_request 钩子
 
 if __name__ == '__main__':
-    # 允许外部访问，方便调试
     app.run(host='0.0.0.0', port=5002, debug=True)

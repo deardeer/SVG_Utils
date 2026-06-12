@@ -178,7 +178,8 @@
 const FLASK_API_URL = 'http://localhost:5002';
 const BASE_PATH = FLASK_API_URL + '/data/';
 const IMAGES_PATH = BASE_PATH + 'animals100_median/';
-const LAYERVEC_PATH = BASE_PATH + 'LayerVec/';
+//const LAYERVEC_PATH = BASE_PATH + 'LayerVec/';
+const LAYERVEC_PATH = BASE_PATH + 'VISTA_clean/';
 const VISTA_PATH = BASE_PATH + 'VISTA/';
 
 // SVG 缩放管理
@@ -408,7 +409,7 @@ function showPathEdgeAndPoints(svgKey) {
                 const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 circle.setAttribute('cx', point.x);
                 circle.setAttribute('cy', point.y);
-                circle.setAttribute('r', '4');
+                circle.setAttribute('r', '3');
                 circle.setAttribute('fill', 'none');
                 circle.setAttribute('stroke', '#3a86ff');
                 circle.setAttribute('stroke-width', '1.5');
@@ -551,6 +552,10 @@ async function loadBothSVG(imageName) {
     const baseName = imageName.replace(/\.(jpg|jpeg|png|gif|webp)$/i, '');
     const layervecUrl = LAYERVEC_PATH + baseName + '.svg';
     const vistaUrl = VISTA_PATH + baseName + '.svg';
+
+    console.log(`Loading SVGs for ${imageName}:`);
+    console.log(`- LayerVec URL: ${layervecUrl}`);
+    console.log(`- VISTA URL: ${vistaUrl}`);
     
     if (statusEl) statusEl.textContent = `Loading vectorization results for ${baseName}...`;
     
