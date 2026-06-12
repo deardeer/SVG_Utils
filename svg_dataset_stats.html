@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SVG Dataset Statistics</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #1a1a1a; color: #e0e0e0; font-family: system-ui, sans-serif;
+    padding: 24px 16px 60px; display: flex; flex-direction: column; align-items: center;
+  }
+  h1 { font-size: 20px; font-weight: 500; letter-spacing: 0.04em; color: #888; margin-bottom: 16px; text-transform: uppercase; }
+  h2 { font-size: 14px; color: #aaa; margin-bottom: 8px; font-weight: 500; }
+  .wrap { width: 100%; max-width: 1300px; display: flex; flex-direction: column; gap: 20px; }
+
+  .drop-zone {
+    border: 2px dashed #444; border-radius: 12px; padding: 30px; text-align: center;
+    color: #888; background: #222; transition: border-color .15s, background .15s;
+  }
+  .drop-zone.drag { border-color: #5a8ab5; background: #232a33; color: #ccc; }
+  .drop-zone input { margin-top: 10px; }
+  .drop-zone .hint { font-size: 12px; color: #666; margin-top: 6px; }
+
+  #progressWrap { display: none; }
+  .progress-bar-wrap { width: 100%; background: #333; border-radius: 4px; height: 6px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: #5a8ab5; width: 0%; transition: width 0.1s; border-radius: 4px; }
+  #progressLabel { font-size: 12px; color: #888; margin-top: 6px; text-align: center; }
+
+  .summary-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;
+  }
+  .stat-card {
+    background: #2a2a2a; border-radius: 10px; padding: 14px; text-align: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.35);
+  }
+  .stat-card .val { font-size: 22px; color: #fff; font-weight: 600; }
+  .stat-card .lbl { font-size: 11px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  #flags { display: none; flex-direction: column; gap: 8px; }
+  #flags.has-items { display: flex; }
+  .flag {
+    background: #2a2a2a; border-left: 4px solid #c97a3d; border-radius: 6px;
+    padding: 10px 14px; font-size: 13px; color: #ddd;
+  }
+  .flag b { color: #ffcf9c; }
+  .flag .count { color: #888; font-size: 12px; }
+
+  .charts-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px;
+  }
+  .chart-card {
+    background: #2a2a2a; border-radius: 10px; padding: 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.35);
+  }
+  .chart-card canvas { width: 100%; height: 200px; display: block; }
+  .chart-desc { font-size: 11px; color: #777; margin-top: 8px; line-height: 1.5; }
+
+  .table-card {
+    background: #2a2a2a; border-radius: 10px; padding: 14px; overflow-x: auto;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.35);
+  }
+  .table-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .table-controls input[type="text"] {
+    background: #333; border: 1px solid #555; color: #e0e0e0; border-radius: 6px;
+    padding: 6px 10px; font-size: 13px; min-width: 200px;
+  }
+  .table-controls .count { font-size: 12px; color: #888; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { padding: 6px 10px; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: #aaa; font-weight: 500; cursor: pointer; user-select: none; border-bottom: 1px solid #444; position: sticky; top: 0; background: #2a2a2a; }
+  th:hover { color: #fff; }
+  th.sorted::after { content: ' \25BC'; font-size: 9px; }
+  th.sorted.asc::after { content: ' \25B2'; }
+  tbody tr:nth-child(odd) { background: #252525; }
+  tbody tr:hover { background: #303a45; }
+  td.fname { text-align: left; color: #ccc; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+  td.warn { color: #ff8888; }
+
+  #status { font-size: 12px; color: #888; text-align: center; }
+</style>
+</head>
+<body>
+<h1>SVG Dataset Statistics</h1>
+<div class="wrap">
+
+  <div class="drop-zone" id="dropZone">
+    <div>Drop a folder of <code>.svg</code> files here, or</div>
+    <input type="file" id="folderInput" webkitdirectory directory multiple accept=".svg">
+    <div class="hint">Everything runs locally in your browser — no files are uploaded anywhere.</div>
+    <div id="progressWrap">
+      <div class="progress-bar-wrap"><div class="progress-bar-fill" id="pbFill"></div></div>
+      <div id="progressLabel"></div>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="summary-grid" id="summary"></div>
+
+  <div id="flags"></div>
+
+  <div class="charts-grid" id="charts"></div>
+
+  <div class="table-card" id="tableCard" style="display:none">
+    <h2>Per-file details</h2>
+    <div class="table-controls">
+      <input type="text" id="filterInput" placeholder="Filter by filename...">
+      <span class="count" id="rowCount"></span>
+    </div>
+    <table id="fileTable">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+// ==================== Utilities ====================
+function mean(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
+function median(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function std(arr) {
+  if (!arr.length) return 0;
+  const m = mean(arr);
+  return Math.sqrt(mean(arr.map(x => (x - m) ** 2)));
+}
+function fmt(n, digits = 2) {
+  if (!isFinite(n)) return '–';
+  if (Math.abs(n) >= 1000) return Math.round(n).toLocaleString();
+  return Number(n.toFixed(digits)).toString();
+}
+function fmtBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+// ==================== Histogram ====================
+function computeHistogram(values, numBins = 10) {
+  const valid = values.filter(v => isFinite(v));
+  if (!valid.length) return { bins: [], edges: [] };
+  let min = Math.min(...valid), max = Math.max(...valid);
+  if (min === max) { min -= 0.5; max += 0.5; }
+  const binSize = (max - min) / numBins;
+  const bins = new Array(numBins).fill(0);
+  for (const v of valid) {
+    let idx = Math.floor((v - min) / binSize);
+    if (idx >= numBins) idx = numBins - 1;
+    if (idx < 0) idx = 0;
+    bins[idx]++;
+  }
+  const edges = [];
+  for (let i = 0; i <= numBins; i++) edges.push(min + i * binSize);
+  return { bins, edges };
+}
+
+function drawHistogram(canvas, values, opts = {}) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const hist = computeHistogram(values, opts.bins || 10);
+  if (!hist.bins.length) {
+    ctx.fillStyle = '#666';
+    ctx.font = '12px system-ui';
+    ctx.fillText('No data', 10, 20);
+    return;
+  }
+
+  const padding = { top: 16, right: 8, bottom: 26, left: 8 };
+  const plotW = W - padding.left - padding.right;
+  const plotH = H - padding.top - padding.bottom;
+  const maxCount = Math.max(...hist.bins, 1);
+  const barW = plotW / hist.bins.length;
+
+  hist.bins.forEach((count, i) => {
+    const barH = (count / maxCount) * plotH;
+    const x = padding.left + i * barW;
+    const y = padding.top + (plotH - barH);
+    ctx.fillStyle = opts.color || '#5a8ab5';
+    ctx.fillRect(x + 1, y, Math.max(barW - 2, 1), barH);
+    if (count > 0) {
+      ctx.fillStyle = '#ccc';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(count, x + barW / 2, y - 3);
+    }
+  });
+
+  // axis labels
+  ctx.fillStyle = '#888';
+  ctx.font = '10px system-ui';
+  const fmtAxis = opts.pct ? (v => (v * 100).toFixed(0) + '%') : (v => fmt(v, opts.axisDigits ?? 1));
+  ctx.textAlign = 'left';
+  ctx.fillText(fmtAxis(hist.edges[0]), padding.left, H - 8);
+  ctx.textAlign = 'right';
+  ctx.fillText(fmtAxis(hist.edges[hist.edges.length - 1]), W - padding.right, H - 8);
+  ctx.textAlign = 'center';
+  ctx.fillText(fmtAxis((hist.edges[0] + hist.edges[hist.edges.length - 1]) / 2), W / 2, H - 8);
+}
+
+function drawColorChart(canvas, colorCounts) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const entries = [...colorCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (!entries.length) {
+    ctx.fillStyle = '#666';
+    ctx.font = '12px system-ui';
+    ctx.fillText('No fill colors found', 10, 20);
+    return;
+  }
+  const maxCount = Math.max(...entries.map(e => e[1]));
+  const rowH = H / entries.length;
+
+  entries.forEach(([color, count], i) => {
+    const y = i * rowH;
+    const swatchSize = Math.min(rowH - 6, 14);
+    // swatch
+    try { ctx.fillStyle = color; } catch (e) { ctx.fillStyle = '#666'; }
+    ctx.fillRect(6, y + (rowH - swatchSize) / 2, swatchSize, swatchSize);
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(6, y + (rowH - swatchSize) / 2, swatchSize, swatchSize);
+    // bar
+    const barMaxW = W - 100;
+    const barW = (count / maxCount) * barMaxW;
+    ctx.fillStyle = '#5a8ab5';
+    ctx.fillRect(26, y + rowH * 0.3, barW, rowH * 0.4);
+    // label
+    ctx.fillStyle = '#ccc';
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${color}  (${count})`, 30, y + rowH * 0.55 + 8);
+  });
+}
+
+// ==================== SVG analysis ====================
+const CURVE_CMDS = new Set(['c', 'q', 'a', 't', 's']);
+
+function analyzeSVG(text, filename, sizeBytes) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, 'image/svg+xml');
+  const parseError = !!doc.querySelector('parsererror');
+  const svgEl = doc.querySelector('svg');
+  const paths = Array.from(doc.querySelectorAll('path'));
+  const groupCount = doc.querySelectorAll('g').length;
+
+  let vbW = 0, vbH = 0;
+  const viewBox = svgEl?.getAttribute('viewBox');
+  if (viewBox) {
+    const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+    if (parts.length === 4) { vbW = parts[2]; vbH = parts[3]; }
+  }
+  if (!vbW || !vbH) {
+    vbW = parseFloat(svgEl?.getAttribute('width')) || vbW;
+    vbH = parseFloat(svgEl?.getAttribute('height')) || vbH;
+  }
+  const vbArea = vbW * vbH;
+
+  const fillColors = new Set();
+  const strokeColors = new Set();
+  let pathsWithFill = 0, pathsWithStroke = 0, pathsWithBoth = 0, pathsWithNeither = 0;
+  let opacitySum = 0, opacityCount = 0;
+  let totalCommands = 0, curveCommands = 0;
+  let totalDataLength = 0;
+  let tinyPathCount = 0;
+  let totalBBoxArea = 0;
+  const dStrings = new Set();
+  let duplicatePathCount = 0;
+
+  for (const p of paths) {
+    const d = p.getAttribute('d') || '';
+    totalDataLength += d.length;
+
+    if (d) {
+      if (dStrings.has(d)) duplicatePathCount++;
+      else dStrings.add(d);
+    }
+
+    const fill = (p.getAttribute('fill') || '').trim().toLowerCase();
+    const stroke = (p.getAttribute('stroke') || '').trim().toLowerCase();
+    const hasFill = fill && fill !== 'none';
+    const hasStroke = stroke && stroke !== 'none';
+    if (hasFill) fillColors.add(fill);
+    if (hasStroke) strokeColors.add(stroke);
+    if (hasFill && hasStroke) pathsWithBoth++;
+    else if (hasFill) pathsWithFill++;
+    else if (hasStroke) pathsWithStroke++;
+    else pathsWithNeither++;
+
+    const opacity = parseFloat(p.getAttribute('opacity'));
+    if (!isNaN(opacity)) { opacitySum += opacity; opacityCount++; }
+
+    const cmdChars = d.match(/[MLCQAZTHVmlcqazthv]/g) || [];
+    totalCommands += cmdChars.length;
+    curveCommands += cmdChars.filter(c => CURVE_CMDS.has(c.toLowerCase())).length;
+
+    const coords = d.match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/g) || [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i + 1 < coords.length; i += 2) {
+      const x = parseFloat(coords[i]), y = parseFloat(coords[i + 1]);
+      if (!isNaN(x) && !isNaN(y)) {
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      }
+    }
+    if (minX !== Infinity) {
+      const area = Math.max(0, maxX - minX) * Math.max(0, maxY - minY);
+      totalBBoxArea += area;
+      if (vbArea > 0 && area / vbArea < 0.0005) tinyPathCount++;
+    }
+  }
+
+  const allColors = new Set([...fillColors, ...strokeColors]);
+
+  return {
+    filename,
+    sizeBytes,
+    parseError,
+    pathCount: paths.length,
+    groupCount,
+    vbW, vbH,
+    aspectRatio: vbH ? vbW / vbH : 0,
+    totalCommands,
+    avgCommandsPerPath: paths.length ? totalCommands / paths.length : 0,
+    curveRatio: totalCommands ? curveCommands / totalCommands : 0,
+    uniqueFillColors: fillColors.size,
+    uniqueStrokeColors: strokeColors.size,
+    uniqueColors: allColors.size,
+    fillColorSet: fillColors,
+    pathsWithFill, pathsWithStroke, pathsWithBoth, pathsWithNeither,
+    avgOpacity: opacityCount ? opacitySum / opacityCount : 1,
+    avgPathDataLength: paths.length ? totalDataLength / paths.length : 0,
+    tinyPathCount,
+    tinyPathRatio: paths.length ? tinyPathCount / paths.length : 0,
+    coverageRatio: vbArea > 0 ? totalBBoxArea / vbArea : 0,
+    duplicatePathCount,
+    duplicateRatio: paths.length ? duplicatePathCount / paths.length : 0,
+  };
+}
+
+// ==================== File handling ====================
+const dropZone = document.getElementById('dropZone');
+const folderInput = document.getElementById('folderInput');
+const progressWrap = document.getElementById('progressWrap');
+const pbFill = document.getElementById('pbFill');
+const progressLabel = document.getElementById('progressLabel');
+const statusEl = document.getElementById('status');
+
+folderInput.addEventListener('change', e => handleFiles(e.target.files));
+
+['dragenter', 'dragover'].forEach(evt =>
+  dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.add('drag'); })
+);
+['dragleave', 'drop'].forEach(evt =>
+  dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove('drag'); })
+);
+dropZone.addEventListener('drop', async e => {
+  const items = e.dataTransfer.items;
+  const files = [];
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry();
+      if (entry) await walkEntry(entry, files);
+    }
+  } else {
+    for (const f of e.dataTransfer.files) files.push(f);
+  }
+  handleFiles(files);
+});
+
+function walkEntry(entry, out) {
+  return new Promise(resolve => {
+    if (entry.isFile) {
+      entry.file(f => { out.push(f); resolve(); });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const readBatch = () => {
+        reader.readEntries(async entries => {
+          if (!entries.length) { resolve(); return; }
+          for (const e of entries) await walkEntry(e, out);
+          readBatch();
+        });
+      };
+      readBatch();
+    } else {
+      resolve();
+    }
+  });
+}
+
+async function handleFiles(fileList) {
+  const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.svg'));
+  if (!files.length) {
+    statusEl.textContent = 'No .svg files found in the selected folder.';
+    return;
+  }
+
+  progressWrap.style.display = 'block';
+  statusEl.textContent = '';
+
+  const results = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    try {
+      const text = await file.text();
+      results.push(analyzeSVG(text, file.webkitRelativePath || file.name, file.size));
+    } catch (err) {
+      results.push({ filename: file.webkitRelativePath || file.name, sizeBytes: file.size, parseError: true });
+    }
+    pbFill.style.width = `${((i + 1) / files.length) * 100}%`;
+    progressLabel.textContent = `Analyzing ${i + 1} / ${files.length}`;
+    if (i % 20 === 0) await new Promise(r => setTimeout(r, 0)); // keep UI responsive
+  }
+
+  progressWrap.style.display = 'none';
+  statusEl.textContent = `Analyzed ${results.length} SVG file(s).`;
+  render(results);
+}
+
+// ==================== Rendering ====================
+function render(results) {
+  const valid = results.filter(r => !r.parseError && r.pathCount > 0);
+  const errored = results.filter(r => r.parseError);
+  const empty = results.filter(r => !r.parseError && r.pathCount === 0);
+
+  renderSummary(results, valid);
+  renderFlags(results, valid);
+  renderCharts(valid);
+  renderTable(results);
+}
+
+function renderSummary(all, valid) {
+  const pathCounts = valid.map(r => r.pathCount);
+  const sizes = all.map(r => r.sizeBytes);
+  const totalColors = new Set();
+  valid.forEach(r => r.fillColorSet.forEach(c => totalColors.add(c)));
+
+  const cards = [
+    { val: all.length, lbl: 'SVG files' },
+    { val: pathCounts.reduce((a, b) => a + b, 0).toLocaleString(), lbl: 'Total paths' },
+    { val: fmt(mean(pathCounts)), lbl: 'Avg paths / file' },
+    { val: fmt(median(pathCounts)), lbl: 'Median paths / file' },
+    { val: pathCounts.length ? Math.min(...pathCounts) : '–', lbl: 'Min paths' },
+    { val: pathCounts.length ? Math.max(...pathCounts) : '–', lbl: 'Max paths' },
+    { val: fmtBytes(sizes.reduce((a, b) => a + b, 0)), lbl: 'Total size' },
+    { val: fmtBytes(mean(sizes)), lbl: 'Avg file size' },
+    { val: totalColors.size, lbl: 'Distinct fill colors (dataset)' },
+    { val: fmt(mean(valid.map(r => r.avgCommandsPerPath))), lbl: 'Avg commands / path' },
+    { val: fmt(mean(valid.map(r => r.curveRatio)) * 100, 1) + '%', lbl: 'Avg curve command ratio' },
+  ];
+
+  document.getElementById('summary').innerHTML = cards.map(c =>
+    `<div class="stat-card"><div class="val">${c.val}</div><div class="lbl">${c.lbl}</div></div>`
+  ).join('');
+}
+
+function renderFlags(all, valid) {
+  const flagsEl = document.getElementById('flags');
+  const flags = [];
+
+  const errored = all.filter(r => r.parseError);
+  if (errored.length) {
+    flags.push(`<b>${errored.length} file(s)</b> failed to parse as valid SVG/XML.`);
+  }
+  const empty = all.filter(r => !r.parseError && r.pathCount === 0);
+  if (empty.length) {
+    flags.push(`<b>${empty.length} file(s)</b> contain no &lt;path&gt; elements.`);
+  }
+
+  const pathCounts = valid.map(r => r.pathCount);
+  const m = mean(pathCounts), s = std(pathCounts);
+  if (s > 0) {
+    const outliers = valid.filter(r => Math.abs(r.pathCount - m) > 2 * s);
+    if (outliers.length) {
+      flags.push(`<b>${outliers.length} file(s)</b> have a path count more than 2&sigma; from the mean (mean ${fmt(m)}, &sigma; ${fmt(s)}) — unusually simple or complex outputs.`);
+    }
+  }
+
+  const noisy = valid.filter(r => r.tinyPathRatio > 0.25);
+  if (noisy.length) {
+    flags.push(`<b>${noisy.length} file(s)</b> have &gt;25% tiny paths (bounding box &lt;0.05% of canvas) — possible noise / over-segmentation.`);
+  }
+
+  const dupHeavy = valid.filter(r => r.duplicateRatio > 0.1);
+  if (dupHeavy.length) {
+    flags.push(`<b>${dupHeavy.length} file(s)</b> have &gt;10% duplicate path data — possible redundant layers.`);
+  }
+
+  const lowCoverage = valid.filter(r => r.coverageRatio > 0 && r.coverageRatio < 0.05);
+  if (lowCoverage.length) {
+    flags.push(`<b>${lowCoverage.length} file(s)</b> have very low bounding-box coverage (&lt;5% of canvas) — content may be tiny or off-canvas.`);
+  }
+
+  if (flags.length) {
+    flagsEl.innerHTML = flags.map(f => `<div class="flag">${f}</div>`).join('');
+    flagsEl.classList.add('has-items');
+  } else {
+    flagsEl.innerHTML = '';
+    flagsEl.classList.remove('has-items');
+  }
+}
+
+const CHART_DEFS = [
+  { key: 'pathCount', title: 'Paths per SVG', desc: 'Number of <path> elements in each file. A wide spread suggests inconsistent vectorization complexity across the dataset.' },
+  { key: 'avgCommandsPerPath', title: 'Avg path commands per path', desc: 'Average number of drawing commands (M/L/C/Q/A/...) per path — higher means more detailed / complex individual shapes.' },
+  { key: 'curveRatio', title: 'Curve command ratio', desc: 'Share of path commands that are curves (C/Q/A/S/T) vs. straight lines (L) — higher values indicate smoother, more organic shapes.', pct: true },
+  { key: 'groupCount', title: 'Groups (<g>) per SVG', desc: 'Number of <g> elements — a rough proxy for layering / structural nesting.' },
+  { key: 'uniqueColors', title: 'Unique colors per SVG', desc: 'Number of distinct fill+stroke colors used in a single file — a proxy for palette richness.' },
+  { key: 'sizeKB', title: 'File size (KB)', desc: 'Raw SVG file size on disk — correlates with path count and path data verbosity.' },
+  { key: 'aspectRatio', title: 'ViewBox aspect ratio (W/H)', desc: 'Width-to-height ratio of each SVG\'s viewBox. 1.0 = square.' },
+  { key: 'tinyPathRatio', title: 'Tiny-path ratio', desc: 'Fraction of paths whose bounding box covers less than 0.05% of the canvas area — a possible indicator of noisy/over-segmented vectorization.', pct: true },
+  { key: 'coverageRatio', title: 'Bounding-box coverage ratio', desc: 'Sum of each path\'s bounding-box area divided by the canvas area. Values well above 1 indicate heavy overlap between paths; near 0 indicates sparse content.' },
+  { key: 'duplicateRatio', title: 'Duplicate path ratio', desc: 'Fraction of paths whose "d" attribute is an exact duplicate of another path in the same file — possible redundant/duplicated layers.', pct: true },
+];
+
+let lastValid = [];
+
+function renderCharts(valid) {
+  lastValid = valid;
+  const chartsEl = document.getElementById('charts');
+  chartsEl.innerHTML = '';
+
+  // Build all chart cards first so layout (e.g. scrollbar appearance) settles
+  // before any canvas is measured — otherwise canvases sized early can end up
+  // with a pixel buffer that no longer matches their final CSS size, which
+  // stretches/distorts the text drawn on them.
+  const drawTasks = [];
+
+  CHART_DEFS.forEach(def => {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `<h2>${def.title}</h2><canvas></canvas><div class="chart-desc">${def.desc}</div>`;
+    chartsEl.appendChild(card);
+    const canvas = card.querySelector('canvas');
+
+    let values;
+    if (def.key === 'sizeKB') values = valid.map(r => r.sizeBytes / 1024);
+    else values = valid.map(r => r[def.key]);
+
+    drawTasks.push(() => drawHistogram(canvas, values, { pct: def.pct }));
+  });
+
+  // Top fill colors chart
+  const colorCard = document.createElement('div');
+  colorCard.className = 'chart-card';
+  colorCard.innerHTML = `<h2>Most common fill colors</h2><canvas style="height:220px"></canvas><div class="chart-desc">The most frequently used fill colors across all paths in the dataset, by number of paths using that exact color value.</div>`;
+  chartsEl.appendChild(colorCard);
+  const colorCounts = new Map();
+  valid.forEach(r => {
+    r.fillColorSet.forEach(c => colorCounts.set(c, (colorCounts.get(c) || 0) + 1));
+  });
+  drawTasks.push(() => drawColorChart(colorCard.querySelector('canvas'), colorCounts));
+
+  drawTasks.forEach(task => task());
+}
+
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  if (!lastValid.length) return;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => renderCharts(lastValid), 150);
+});
+
+// ==================== Table ====================
+const TABLE_COLS = [
+  { key: 'filename', label: 'File', fmt: v => v, num: false },
+  { key: 'pathCount', label: 'Paths', fmt: v => v },
+  { key: 'groupCount', label: 'Groups', fmt: v => v },
+  { key: 'avgCommandsPerPath', label: 'Avg cmds/path', fmt: v => fmt(v) },
+  { key: 'curveRatio', label: 'Curve %', fmt: v => fmt(v * 100, 1) },
+  { key: 'uniqueColors', label: 'Colors', fmt: v => v },
+  { key: 'sizeBytes', label: 'Size', fmt: v => fmtBytes(v) },
+  { key: 'aspectRatio', label: 'Aspect (W/H)', fmt: v => fmt(v) },
+  { key: 'tinyPathRatio', label: 'Tiny %', fmt: v => fmt(v * 100, 1) },
+  { key: 'coverageRatio', label: 'Coverage', fmt: v => fmt(v, 2) },
+  { key: 'duplicateRatio', label: 'Dup %', fmt: v => fmt(v * 100, 1) },
+];
+
+let tableData = [];
+let sortKey = 'pathCount';
+let sortAsc = false;
+
+function renderTable(results) {
+  tableData = results;
+  const card = document.getElementById('tableCard');
+  card.style.display = 'block';
+
+  const thead = document.querySelector('#fileTable thead');
+  thead.innerHTML = '<tr>' + TABLE_COLS.map(c =>
+    `<th data-key="${c.key}">${c.label}</th>`
+  ).join('') + '</tr>';
+
+  thead.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (sortKey === key) sortAsc = !sortAsc;
+      else { sortKey = key; sortAsc = key === 'filename'; }
+      drawTableBody();
+    });
+  });
+
+  document.getElementById('filterInput').oninput = drawTableBody;
+  drawTableBody();
+}
+
+function drawTableBody() {
+  const filter = document.getElementById('filterInput').value.toLowerCase();
+  let rows = tableData.filter(r => r.filename.toLowerCase().includes(filter));
+
+  rows.sort((a, b) => {
+    let av = a[sortKey], bv = b[sortKey];
+    if (av === undefined || av === null) av = a.parseError ? -1 : 0;
+    if (bv === undefined || bv === null) bv = b.parseError ? -1 : 0;
+    if (typeof av === 'string') return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    return sortAsc ? av - bv : bv - av;
+  });
+
+  document.querySelectorAll('#fileTable th').forEach(th => {
+    th.classList.toggle('sorted', th.dataset.key === sortKey);
+    th.classList.toggle('asc', th.dataset.key === sortKey && sortAsc);
+  });
+
+  const tbody = document.querySelector('#fileTable tbody');
+  tbody.innerHTML = rows.map(r => {
+    if (r.parseError) {
+      return `<tr><td class="fname warn">${r.filename}</td><td colspan="${TABLE_COLS.length - 1}" class="warn">Parse error</td></tr>`;
+    }
+    if (r.pathCount === 0) {
+      return `<tr><td class="fname warn">${r.filename}</td><td colspan="${TABLE_COLS.length - 1}" class="warn">No &lt;path&gt; elements</td></tr>`;
+    }
+    return '<tr>' + TABLE_COLS.map(c => {
+      if (c.key === 'filename') return `<td class="fname">${r.filename}</td>`;
+      return `<td>${c.fmt(r[c.key])}</td>`;
+    }).join('') + '</tr>';
+  }).join('');
+
+  document.getElementById('rowCount').textContent = `${rows.length} / ${tableData.length} files`;
+}
+</script>
+</body>
+</html>

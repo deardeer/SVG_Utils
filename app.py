@@ -17,6 +17,7 @@ CORS(app, resources={
 @app.route('/data/get_image_list')
 def get_image_list():
     image_dir = './data/animals100_median/'
+    # image_dir = './data/household100/'
     images = []
     
     if os.path.exists(image_dir):
@@ -53,6 +54,14 @@ def serve_vista(filename):
 @app.route('/data/VISTA_clean/<path:filename>')
 def serve_vista_clean(filename):
     return send_from_directory('./data/VISTA_clean', filename)
+
+@app.route('/data/household100/<path:filename>')
+def serve_household100(filename):
+    return send_from_directory('./data/household100', filename)
+
+@app.route('/data/VISTA_clean_household/<path:filename>')
+def serve_vista_clean_household(filename):
+    return send_from_directory('./data/VISTA_clean_household', filename)
 
 # ========================================================
 
